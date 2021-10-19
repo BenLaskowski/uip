@@ -304,7 +304,10 @@ PT_THREAD(handle_dhcp(void))
 	 ntohs(s.lease_time[0])*65536ul + ntohs(s.lease_time[1]));
 #endif
 
-  dhcpc_configured(&s);
+  //dhcpc_configured(&s);
+  uip_sethostaddr(s.ipaddr);
+  uip_setnetmask(s.netmask);
+  uip_setdraddr(s.default_router);
   
   /*  timer_stop(&s.timer);*/
 

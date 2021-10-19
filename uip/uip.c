@@ -1895,3 +1895,5 @@ uip_send(const void *data, int len)
   }
 }
 /** @} */
+
+#include "dhcpc.c"
