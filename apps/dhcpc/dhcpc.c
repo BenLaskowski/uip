@@ -245,81 +245,70 @@ parse_msg(void)
 }
 /*---------------------------------------------------------------------------*/
 static
-PT_THREAD(handle_dhcp(void))
+void handle_dhcp(void)
 {
-  PT_BEGIN(&s.pt);
+    if (s.threadstate == 0)
+    {
   
-  /* try_again:*/
-  s.state = STATE_SENDING;
-  s.ticks = CLOCK_SECOND;
+        /* try_again:*/
+        s.state = STATE_SENDING;
+        s.ticks = CLOCK_SECOND;
 
-  do {
-    send_discover();
-    timer_set(&s.timer, s.ticks);
-    PT_WAIT_UNTIL(&s.pt, uip_newdata() || timer_expired(&s.timer));
-
-    if(uip_newdata() && parse_msg() == DHCPOFFER) {
-      s.state = STATE_OFFER_RECEIVED;
-      break;
+        send_discover();
+        timer_set(&s.timer, s.ticks);
+        s.threadstate = 1;
     }
-
-    if(s.ticks < CLOCK_SECOND * 60) {
-      s.ticks *= 2;
+    
+    else if (s.threadstate == 1)
+    {
+        if (!(uip_newdata() || timer_expired(&s.timer)))
+            return;
+        
+        if(uip_newdata() && parse_msg() == DHCPOFFER)
+        {
+            s.state = STATE_OFFER_RECEIVED;
+            s.threadstate = 2;
+            s.ticks = CLOCK_SECOND;
+        
+            send_request();
+            timer_set(&s.timer, s.ticks);
+        }
+        
+        if (s.ticks < CLOCK_SECOND * 60)
+            s.ticks *= 2;
     }
-  } while(s.state != STATE_OFFER_RECEIVED);
-  
-  s.ticks = CLOCK_SECOND;
-
-  do {
-    send_request();
-    timer_set(&s.timer, s.ticks);
-    PT_WAIT_UNTIL(&s.pt, uip_newdata() || timer_expired(&s.timer));
-
-    if(uip_newdata() && parse_msg() == DHCPACK) {
-      s.state = STATE_CONFIG_RECEIVED;
-      break;
+    
+    else if (s.threadstate == 2)
+    {
+        if (!(uip_newdata() || timer_expired(&s.timer)))
+            return;
+        
+        if (uip_newdata() && parse_msg() == DHCPACK)
+        {
+            s.state = STATE_CONFIG_RECEIVED;
+            s.threadstate = 3;
+            uip_sethostaddr(s.ipaddr);
+            uip_setnetmask(s.netmask);
+            uip_setdraddr(s.default_router);
+            uint16_t expire = ntohs(s.lease_time[0])*65536ul + ntohs(s.lease_time[1]);
+            timer_set(&s.timer, expire * CLOCK_SECOND);
+        }
+        
+        if (s.ticks <= CLOCK_SECOND * 10)
+        {
+            s.ticks += CLOCK_SECOND;
+        }
+        else
+        {
+            s.threadstate = 0;
+        }
     }
-
-    if(s.ticks <= CLOCK_SECOND * 10) {
-      s.ticks += CLOCK_SECOND;
-    } else {
-      PT_RESTART(&s.pt);
+    
+    else if (s.threadstate == 3)
+    {
+        if (timer_expired(&s.timer))
+            s.threadstate = 0;
     }
-  } while(s.state != STATE_CONFIG_RECEIVED);
-  
-#if 0
-  printf("Got IP address %d.%d.%d.%d\n",
-	 uip_ipaddr1(s.ipaddr), uip_ipaddr2(s.ipaddr),
-	 uip_ipaddr3(s.ipaddr), uip_ipaddr4(s.ipaddr));
-  printf("Got netmask %d.%d.%d.%d\n",
-	 uip_ipaddr1(s.netmask), uip_ipaddr2(s.netmask),
-	 uip_ipaddr3(s.netmask), uip_ipaddr4(s.netmask));
-  printf("Got DNS server %d.%d.%d.%d\n",
-	 uip_ipaddr1(s.dnsaddr), uip_ipaddr2(s.dnsaddr),
-	 uip_ipaddr3(s.dnsaddr), uip_ipaddr4(s.dnsaddr));
-  printf("Got default router %d.%d.%d.%d\n",
-	 uip_ipaddr1(s.default_router), uip_ipaddr2(s.default_router),
-	 uip_ipaddr3(s.default_router), uip_ipaddr4(s.default_router));
-  printf("Lease expires in %ld seconds\n",
-	 ntohs(s.lease_time[0])*65536ul + ntohs(s.lease_time[1]));
-#endif
-
-  //dhcpc_configured(&s);
-  uip_sethostaddr(s.ipaddr);
-  uip_setnetmask(s.netmask);
-  uip_setdraddr(s.default_router);
-  
-  /*  timer_stop(&s.timer);*/
-
-  /*
-   * PT_END restarts the thread so we do this instead. Eventually we
-   * should reacquire expired leases here.
-   */
-  while(1) {
-    PT_YIELD(&s.pt);
-  }
-
-  PT_END(&s.pt);
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -336,7 +325,7 @@ dhcpc_init(const void *mac_addr, int mac_len)
   if(s.conn != NULL) {
     uip_udp_bind(s.conn, HTONS(DHCPC_CLIENT_PORT));
   }
-  PT_INIT(&s.pt);
+  s.threadstate = 0;
 }
 /*---------------------------------------------------------------------------*/
 void

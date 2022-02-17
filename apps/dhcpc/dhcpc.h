@@ -37,7 +37,8 @@
 #include "pt.h"
 
 struct dhcpc_state {
-  struct pt pt;
+  //struct pt pt;
+  char threadstate;
   char state;
   struct uip_udp_conn *conn;
   struct timer timer;
